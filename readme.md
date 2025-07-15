@@ -1,7 +1,7 @@
 # Axum-svue
 
 A fully featured api that returns json gradedata. A hosted version is available at
-https://svue.zillorz.dev/.
+https://svue.zillorz.dev/ or https://axum-svue.fly.dev
 
 To host, make sure the VERSION_NUMBER and ENKEY variables are set.
 
