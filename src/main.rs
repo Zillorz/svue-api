@@ -17,10 +17,8 @@ use crate::api::student_info::StudentInfo;
 use crate::api::{documents, gradebook, school_info, student_info, ApiError};
 use crate::crypto::AuthToken;
 
-#[cfg(feature = "schedule")]
 use crate::api::schedule;
 
-#[cfg(feature = "attendance")]
 use crate::api::attendance;
 
 mod api;
@@ -63,12 +61,17 @@ pub async fn get_edu_version() -> Result<String, ApiError> {
 type Resp<T> = Result<(HeaderMap, Json<T>), ApiError>;
 
 async fn get_data<T: Serialize>(
-    mut token: AuthToken,
+    token: AuthToken,
     fetch: impl for<'a> AsyncFnOnce(&'a mut AuthToken) -> Result<T, ApiError>,
 ) -> Resp<T> {
-    if token.is_empty() {
-        Err(ApiError::EmptyCredentials)?
-    }
+    let (hm, data) = with_token(token, fetch).await?;
+    Ok((hm, Json(data)))
+}
+
+async fn with_token<T>(
+    mut token: AuthToken,
+    fetch: impl for<'a> AsyncFnOnce(&'a mut AuthToken) -> Result<T, ApiError>,
+) -> Result<(HeaderMap, T), ApiError> {
     let old = token.clone();
 
     let data = fetch(&mut token).await?;
@@ -84,7 +87,7 @@ async fn get_data<T: Serialize>(
         );
     }
 
-    Ok((hm, Json(data)))
+    Ok((hm, data))
 }
 
 #[derive(Deserialize)]
@@ -99,7 +102,6 @@ async fn grades(token: AuthToken, req: Query<GradeReq>) -> Resp<gradebook::Respo
     .await
 }
 
-#[cfg(feature = "attendance")]
 async fn attendance(token: AuthToken) -> Resp<attendance::Response> {
     get_data(token, attendance::get_attendance).await
 }
@@ -113,49 +115,24 @@ struct DocReq {
     gu: String,
 }
 
-// needs old format :/
 async fn document(
-    mut token: AuthToken,
+    token: AuthToken,
     Query(dr): Query<DocReq>,
 ) -> Result<(HeaderMap, Body), ApiError> {
-    if token.is_empty() {
-        Err(ApiError::EmptyCredentials)?
-    }
-    let old = token.clone();
+    let (mut headers, document) =
+        with_token(token, async |t: &mut AuthToken| documents::get_document(t, dr.gu).await).await?;
 
-    let document = documents::get_document(&mut token, dr.gu).await?;
-    let mut headers = HeaderMap::new();
-
-    if old != token {
-        let enc = serde_json::to_string(&token).map_err(|_| ApiError::Unknown)?;
-        let tok = BASE64_STANDARD.encode(crypto::create_token(enc)?);
-        headers.insert(
-            HeaderName::from_static("Set-Token"),
-            HeaderValue::from_str(&tok).unwrap(),
-        );
-    }
-
-    if document.file_name.to_lowercase().ends_with(".pdf") {
-        let dep = format!("inline; filename=\"{}\"", document.file_name);
-        headers.insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/pdf"),
-        );
-        headers.insert(
-            header::CONTENT_DISPOSITION,
-            HeaderValue::from_str(&dep).unwrap(),
-        );
+    let (content_type, disposition) = if document.file_name.to_lowercase().ends_with(".pdf") {
+        ("application/pdf", "inline")
     } else {
-        let dep = format!("attachment; filename=\"{}\"", document.file_name);
-        headers.insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/octet-stream"),
-        );
-        headers.insert(
-            header::CONTENT_DISPOSITION,
-            HeaderValue::from_str(&dep).unwrap(),
-        );
+        ("application/octet-stream", "attachment")
     };
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("{disposition}; filename=\"{}\"", document.file_name))
+            .map_err(|_| ApiError::Unknown)?,
+    );
 
     Ok((headers, Body::from(document.file_data)))
 }
@@ -165,24 +142,8 @@ async fn student_info(token: AuthToken) -> Resp<StudentInfo> {
 }
 
 
-// old format for this too
-async fn student_photo(mut token: AuthToken) -> Result<(HeaderMap, Body), ApiError> {
-    if token.is_empty() {
-        Err(ApiError::EmptyCredentials)?
-    }
-    let old = token.clone();
-
-    let bytes = student_info::photo(&mut token).await?;
-    let mut headers = HeaderMap::new();
-
-    if old != token {
-        let enc = serde_json::to_string(&token).map_err(|_| ApiError::Unknown)?;
-        let tok = BASE64_STANDARD.encode(crypto::create_token(enc)?);
-        headers.insert(
-            HeaderName::from_static("Set-Token"),
-            HeaderValue::from_str(&tok).unwrap(),
-        );
-    }
+async fn student_photo(token: AuthToken) -> Result<(HeaderMap, Body), ApiError> {
+    let (mut headers, bytes) = with_token(token, student_info::photo).await?;
 
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
     headers.insert(
@@ -198,13 +159,11 @@ async fn school_info(token: AuthToken) -> Resp<SchoolInfo> {
     get_data(token, school_info::school_info).await
 }
 
-#[cfg(feature = "schedule")]
 #[derive(Deserialize)]
 struct ScheduleReq {
     term_index: Option<i32>,
 }
 
-#[cfg(feature = "schedule")]
 async fn schedule(
     token: AuthToken,
     Query(req): Query<ScheduleReq>,
@@ -223,17 +182,9 @@ pub async fn main() {
         .route("/document", get(document))
         .route("/student", get(student_info))
         .route("/photo", get(student_photo))
-        .route("/school", get(school_info)); 
-        
-    #[cfg(feature = "schedule")]
-    {
-        router = router.route("/schedule", get(schedule)); 
-    }
-
-    #[cfg(feature = "attendance")]
-    {
-        router = router.route("/attendance", get(attendance));
-    }
+        .route("/school", get(school_info))
+        .route("/schedule", get(schedule))
+        .route("/attendance", get(attendance));
 
     #[cfg(feature = "enhanced")]
     {

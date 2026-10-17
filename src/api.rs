@@ -1,26 +1,26 @@
 use std::fmt::Debug;
 use std::num::ParseIntError;
 
+use axum::http::header::AUTHORIZATION;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
-use quick_xml::DeError;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use reqwest::{Client, Response};
+use serde::de::{DeserializeOwned, IgnoredAny};
+use serde::Deserialize;
+use serde_json::{json, Value};
 use thiserror::Error;
 
 use crate::api::gradebook::GradebookError;
 use crate::crypto::{AuthToken, CryptoError};
 use crate::get_edu_version;
 
-#[cfg(feature = "attendance")]
 pub(crate) mod attendance;
 
 #[cfg(feature = "enhanced")]
 pub(crate) mod cache;
 
-#[cfg(feature = "schedule")]
 pub(crate) mod schedule;
 
 pub(crate) mod documents;
@@ -39,7 +39,7 @@ pub fn base64_mangle<T: std::error::Error>(inp: T) -> String {
 #[derive(Error, Debug)]
 pub enum ApiError {
     #[error("Cannot parse response: {}", base64_mangle(.0))]
-    Parsing(#[from] DeError),
+    Parsing(#[from] serde_json::Error),
     #[error("Unable to load Gradebook, message: {0}")]
     Gradebook(#[from] GradebookError),
     #[error("Unable to load Attendance, message: invalid term idx")]
@@ -47,7 +47,7 @@ pub enum ApiError {
     #[error("Unable to reach StudentVue")]
     Network(#[from] reqwest::Error),
     #[error("{0}")]
-    StudentVue(#[from] RtError),
+    StudentVue(#[from] SvError),
     #[error("Username or password is empty")]
     EmptyCredentials,
 
@@ -72,13 +72,16 @@ pub enum ApiError {
     ExpiredKey,
     #[error("Security failed - do you have a user agent?")]
     NoSecureResponse,
+    #[error("Not found")]
+    NotFound,
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let code = match &self {
             ApiError::StudentVue(_) | ApiError::EmptyCredentials => StatusCode::BAD_REQUEST,
-            ApiError::InvalidCredentials => StatusCode::UNAUTHORIZED,
+            ApiError::InvalidCredentials | ApiError::ExpiredKey => StatusCode::UNAUTHORIZED,
+            ApiError::NotFound => StatusCode::NOT_FOUND,
             ApiError::Crypto(crypto) => match crypto {
                 CryptoError::InvalidCipher(_) | CryptoError::CryptError(_) => {
                     StatusCode::BAD_REQUEST
@@ -91,196 +94,118 @@ impl IntoResponse for ApiError {
     }
 }
 
-// SLOW AUTH IS DEAD
-// async fn rel_auth(req: &ProcessWebServiceRequest) -> Result<String, ApiError> {
-//     slow_auth(req).await
-// }
-
 // This is probably a bad idea
 lazy_static::lazy_static! {
     pub static ref CLIENT: Client = Client::new();
 }
 
-pub async fn api_request(
-    req: ProcessWebServiceRequest,
-    token: &mut AuthToken,
-) -> Result<String, ApiError> {
-    let res = CLIENT
-        .post(format!("https://{}/Service/PXPCommunication.asmx", token.district_url))
-        .header(
-            "Cookie",
-            format!(
-                "{}AppSupportsSession=1; edupointkey=1; edupointkeyversion={}",
-                token.cookie.as_ref().unwrap_or(&String::new()),
-                get_edu_version().await?
-            ),
-        )
-        .header("Content-Type", "text/xml")
-        .body(SoapEnvelope::new_request(req).as_string())
+#[derive(Deserialize, Debug, Error)]
+#[error("{message}")]
+pub struct SvError {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Deserialize)]
+struct Envelope<T> {
+    error: Option<SvError>,
+    data: Option<T>,
+}
+
+#[derive(Deserialize)]
+struct Tokens {
+    access_token: String,
+    refresh_token: String,
+}
+
+async fn post(
+    token: &AuthToken,
+    method: &str,
+    authorization: String,
+    body: String,
+) -> Result<Response, ApiError> {
+    Ok(CLIENT
+        .post(format!(
+            "https://{}/api/v1/mobile/PXPWebServices/{method}",
+            token.district_url
+        ))
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "ksoap")
+        .header("edupointkeyversion", get_edu_version().await?)
+        .header(AUTHORIZATION, authorization)
+        .body(body)
         .send()
+        .await?)
+}
+
+async fn login(token: &mut AuthToken) -> Result<(), ApiError> {
+    let (username, password) = token.credentials.as_ref().ok_or(ApiError::ExpiredKey)?;
+    let basic = BASE64_STANDARD.encode(format!("{username}:{password}"));
+    let body = json!({"arguments": {"request": json!({
+        "userID": null, "password": null, "userType": "Student"
+    }).to_string()}});
+
+    let text = post(token, "AttemptLogin", format!("Basic {basic}"), body.to_string())
+        .await?
+        .error_for_status()?
+        .text()
         .await?;
 
-    if res.status() == StatusCode::METHOD_NOT_ALLOWED {
-        Err(ApiError::Maintainance)?
+    if let Ok(tokens) = serde_json::from_str::<Tokens>(&text) {
+        token.access_token = tokens.access_token;
+        token.refresh_token = tokens.refresh_token;
+        return Ok(());
     }
 
-    let mut cookies = String::new();
-    for header in res.headers().get_all("Set-Cookie") {
-        cookies += header
-            .to_str()
-            .unwrap_or_default()
-            .split_whitespace()
-            .next()
-            .unwrap_or_default();
-        cookies += " ";
-    }
-
-    if !cookies.is_empty() {
-        token.cookie = Some(cookies);
-    }
-
-    let mut res = res.text().await?;
-
-    // bad workaround :/
-    res = res.replace("soap:", "").to_string();
-
-    let resp: Result<SoapEnvelope<SoapBodyResponse>, DeError> =
-        quick_xml::de::from_str(res.as_str());
-    let resp = resp?;
-
-    if res.contains("ERROR_MESSAGE=") {
-        let err: RtError = quick_xml::de::from_str(
-            &resp
-                .soap_body
-                .process_web_service_request_response
-                .process_web_service_request_result,
-        )?;
-
-        if err.error_message.contains(".dll") {
-            return Err(ApiError::Unknown);
+    match serde_json::from_str::<Envelope<IgnoredAny>>(&text)?.error {
+        Some(err) if err.code == "401" || err.message.contains("password") => {
+            Err(ApiError::InvalidCredentials)
         }
-
-        return Err(err.into());
-    }
-
-    Ok(resp
-        .soap_body
-        .process_web_service_request_response
-        .process_web_service_request_result)
-}
-
-impl SoapEnvelope<SoapBodyRequest> {
-    pub fn new_request(body: ProcessWebServiceRequest) -> Self {
-        SoapEnvelope {
-            xmlns_soap: "http://schemas.xmlsoap.org/soap/envelope/".to_string(),
-            xmlns_xsi: "http://www.w3.org/2001/XMLSchema-instance".to_string(),
-            xmlns_xsd: "http://www.w3.org/2001/XMLSchema".to_string(),
-            soap_body: SoapBodyRequest {
-                process_web_service_request: body,
-            },
-        }
-    }
-
-    pub fn as_string(&self) -> String {
-        format!(
-            r#"<?xml version="1.0" encoding="utf-8"?>
-        {}
-        "#,
-            quick_xml::se::to_string(&self).expect("Valid XML Schema")
-        )
+        Some(err) => Err(err.into()),
+        None => Err(ApiError::Unknown),
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Error)]
-#[serde(rename = "RT_ERROR")]
-#[error("{error_message}")]
-pub struct RtError {
-    #[serde(rename = "@ERROR_MESSAGE")]
-    pub error_message: String,
+async fn refresh(token: &mut AuthToken) -> Result<(), ApiError> {
+    let res = post(
+        token,
+        "RefreshToken",
+        format!("Bearer {}", token.refresh_token),
+        "{}".to_string(),
+    )
+    .await?;
+
+    let tokens: Tokens = serde_json::from_str(&res.text().await?).map_err(|_| ApiError::ExpiredKey)?;
+    token.access_token = tokens.access_token;
+    token.refresh_token = tokens.refresh_token;
+    Ok(())
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename(serialize = "soap:Envelope", deserialize = "Envelope"))]
-pub struct SoapEnvelope<T: Serialize + Debug> {
-    #[serde(rename = "@xmlns:xsi")]
-    pub xmlns_xsi: String,
-    #[serde(rename = "@xmlns:xsd")]
-    pub xmlns_xsd: String,
-    #[serde(rename = "@xmlns:soap")]
-    pub xmlns_soap: String,
-    #[serde(rename(serialize = "soap:Body", deserialize = "Body"))]
-    pub soap_body: T,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SoapBodyRequest {
-    #[serde(rename = "ProcessWebServiceRequest")]
-    pub process_web_service_request: ProcessWebServiceRequest,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SoapBodyResponse {
-    #[serde(rename = "ProcessWebServiceRequestResponse")]
-    pub process_web_service_request_response: ProcessWebServiceRequestResponse,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ProcessWebServiceRequest {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: String,
-    #[serde(rename = "userID")]
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub user_id: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub password: String,
-    #[serde(rename = "skipLoginLog")]
-    pub skip_login_log: String,
-    pub parent: String,
-    #[serde(rename = "webServiceHandleName")]
-    pub web_service_handle_name: String,
-    #[serde(rename = "methodName")]
-    pub method_name: String,
-    #[serde(rename = "paramStr")]
-    pub param_str: String,
-}
-
-impl ProcessWebServiceRequest {
-    fn up_default(
-        user_id: String,
-        password: String,
-        method_name: String,
-        params: String,
-    ) -> ProcessWebServiceRequest {
-        ProcessWebServiceRequest {
-            xmlns: "http://edupoint.com/webservices/".to_string(),
-            user_id,
-            password,
-            skip_login_log: "1".to_string(),
-            parent: "0".to_string(),
-            web_service_handle_name: "PXPWebServices".to_string(),
-            method_name,
-            param_str: format!("<Parms><ChildIntID>0</ChildIntID>{params}</Parms>"),
-        }
+pub async fn api_request<T: DeserializeOwned>(
+    method: &str,
+    params: Value,
+    token: &mut AuthToken,
+) -> Result<T, ApiError> {
+    if token.access_token.is_empty() {
+        login(token).await?;
     }
 
-    pub fn ck_default(
-        method_name: String,
-        params: String,
-        token: &AuthToken,
-    ) -> ProcessWebServiceRequest {
-        ProcessWebServiceRequest::up_default(
-            token.username.clone(),
-            token.password.clone(),
-            method_name,
-            params,
-        )
-    }
-}
+    let body = json!({"arguments": {"request": params.to_string()}}).to_string();
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ProcessWebServiceRequestResponse {
-    #[serde(rename = "@xmlns")]
-    pub xmlns: String,
-    #[serde(rename = "ProcessWebServiceRequestResult")]
-    pub process_web_service_request_result: String,
+    let mut res = post(token, method, format!("Bearer {}", token.access_token), body.clone()).await?;
+    if res.status() == StatusCode::UNAUTHORIZED {
+        refresh(token).await?;
+        res = post(token, method, format!("Bearer {}", token.access_token), body).await?;
+    }
+
+    if res.status() == StatusCode::UNAUTHORIZED {
+        Err(ApiError::ExpiredKey)?
+    }
+
+    let envelope: Envelope<T> = serde_json::from_str(&res.error_for_status()?.text().await?)?;
+    match envelope {
+        Envelope { error: Some(err), .. } => Err(err.into()),
+        Envelope { data: Some(data), .. } => Ok(data),
+        _ => Err(ApiError::Unknown),
+    }
 }

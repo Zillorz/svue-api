@@ -71,15 +71,17 @@ pub fn try_decrypt_token(encrypted: &[u8]) -> Result<String, CryptoError> {
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 pub struct AuthToken {
-    pub username: String,
-    pub password: String,
-    pub cookie: Option<String>,
+    pub access_token: String,
+    pub refresh_token: String,
 
     // if at this point, kill
     #[serde(with = "string")]
     pub expiry: u128,
 
-    pub district_url: String
+    pub district_url: String,
+
+    #[serde(skip)]
+    pub credentials: Option<(String, String)>,
 }
 
 mod string {
@@ -113,12 +115,6 @@ fn get_timestamp() -> u128 {
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
         .as_millis()
-}
-
-impl AuthToken {
-    pub fn is_empty(&self) -> bool {
-        self.username.is_empty() || self.password.is_empty()
-    }
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for AuthToken {
@@ -156,13 +152,17 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthToken {
                     .split_once(':')
                     .ok_or(ApiError::InvalidCredentials)?;
 
+                if username.is_empty() || password.is_empty() {
+                    Err(ApiError::EmptyCredentials)?
+                }
+
                 Ok(AuthToken {
-                    username: username.to_string(),
-                    password: password.to_string(),
-                    cookie: None,
+                    access_token: String::new(),
+                    refresh_token: String::new(),
                     expiry: get_timestamp() + 1000 * 60 * 60 * 24,
                     // in the future, use this to support other districts
-                    district_url: "md-mcps-psv.edupoint.com".to_string()
+                    district_url: "md-mcps-psv.edupoint.com".to_string(),
+                    credentials: Some((username.to_string(), password.to_string())),
                 })
             }
             _ => Err(ApiError::InvalidCredentials),

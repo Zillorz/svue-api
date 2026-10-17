@@ -1,44 +1,43 @@
 use crate::{
-    api::{api_request, ApiError, ProcessWebServiceRequest},
+    api::{api_request, ApiError},
     crypto::AuthToken,
 };
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::json;
 
 pub async fn list_documents(token: &mut AuthToken) -> Result<Vec<Document>, ApiError> {
-    let result = api_request(
-        ProcessWebServiceRequest::ck_default(
-            "GetStudentDocumentInitialData".to_string(),
-            String::new(),
-            token,
-        ),
+    let data: StudentDocumentsData = api_request(
+        "GetStudentDocuments",
+        json!({"childIntID": 0, "languageCode": "en"}),
         token,
     )
     .await?;
 
-    let docs: StudentDocuments = quick_xml::de::from_str(result.as_str())?;
-    Ok(docs
+    Ok(data
+        .student_documents
         .student_document_datas
-        .student_document_data
         .into_iter()
         .map(|x| x.into())
         .collect())
 }
 
 pub async fn get_document(token: &mut AuthToken, gu: String) -> Result<DocumentData, ApiError> {
-    let result = api_request(
-        ProcessWebServiceRequest::ck_default(
-            "GetContentOfAttachedDoc".to_string(),
-            format!("<DocumentGU>{gu}</DocumentGU>"),
-            token,
-        ),
+    let data: StudentAttachedDocumentDataData = api_request(
+        "GetStudentDocumentContent",
+        json!({"childIntID": 0, "documentGU": gu}),
         token,
     )
     .await?;
 
-    let docs: StudentAttachedDocumentData = quick_xml::de::from_str(result.as_str())?;
-    Ok(docs.document_datas.document_data.into())
+    Ok(data
+        .student_attached_document_data
+        .document_datas
+        .into_iter()
+        .next()
+        .ok_or(ApiError::NotFound)?
+        .into())
 }
 
 // Api structs
@@ -76,83 +75,47 @@ impl From<DocumentData_> for DocumentData {
     }
 }
 
-// XML structs
-
-#[derive(Serialize, Deserialize)]
-pub struct StudentDocuments {
-    #[serde(rename = "@xmlns:xsd")]
-    pub xmlns_xsd: String,
-    #[serde(rename = "@xmlns:xsi")]
-    pub xmlns_xsi: String,
-    #[serde(rename = "@showDateColumn")]
-    pub show_date_column: String,
-    #[serde(rename = "@showDocNameColumn")]
-    pub show_doc_name_column: String,
-    #[serde(rename = "@showDocCatColumn")]
-    pub show_doc_cat_column: String,
-    #[serde(rename = "@StudentGU")]
-    pub student_gu: String,
-    #[serde(rename = "@StudentSSY")]
-    pub student_ssy: String,
-    #[serde(rename = "StudentDocumentDatas")]
-    pub student_document_datas: StudentDocumentDatas,
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StudentDocumentsData {
+    student_documents: StudentDocuments,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct StudentDocumentDatas {
-    #[serde(rename = "StudentDocumentData")]
-    pub student_document_data: Vec<StudentDocumentData>,
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StudentDocuments {
+    #[serde(default)]
+    student_document_datas: Vec<StudentDocumentData>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StudentDocumentData {
-    #[serde(rename = "@DocumentGU")]
+    #[serde(rename = "documentGU")]
     pub document_gu: String,
-    #[serde(rename = "@DocumentFileName")]
     pub document_file_name: String,
-    #[serde(rename = "@DocumentDate")]
     pub document_date: String,
-    #[serde(rename = "@DocumentType")]
-    pub document_type: String,
-    #[serde(rename = "@StudentGU")]
-    pub student_gu: String,
-    #[serde(rename = "@DocumentComment")]
     pub document_comment: String,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct StudentAttachedDocumentData {
-    #[serde(rename = "@xmlns:xsd")]
-    pub xmlns_xsd: String,
-    #[serde(rename = "@xmlns:xsi")]
-    pub xmlns_xsi: String,
-    #[serde(rename = "DocumentDatas")]
-    pub document_datas: DocumentDatas,
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StudentAttachedDocumentDataData {
+    student_attached_document_data: StudentAttachedDocumentData,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct DocumentDatas {
-    #[serde(rename = "DocumentData")]
-    pub document_data: DocumentData_,
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StudentAttachedDocumentData {
+    #[serde(default)]
+    document_datas: Vec<DocumentData_>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentData_ {
-    #[serde(rename = "@DocumentGU")]
-    pub document_gu: String,
-    #[serde(rename = "@StudentGU")]
-    pub student_gu: String,
-    #[serde(rename = "@DocDate")]
-    pub doc_date: String,
-    #[serde(rename = "@FileName")]
     pub file_name: String,
-    #[serde(rename = "@Category")]
-    pub category: String,
-    #[serde(rename = "@Notes")]
-    pub notes: String,
-    #[serde(rename = "@DocType")]
-    pub doc_type: String,
-    #[serde(rename = "Base64Code")]
+    #[serde(rename = "base64Code")]
     #[serde(deserialize_with = "base64")]
     pub data: Vec<u8>,
 }
