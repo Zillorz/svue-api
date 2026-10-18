@@ -2,10 +2,9 @@ use std::collections::HashMap;
 use std::num::ParseFloatError;
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use thiserror::Error;
 
-use crate::api::{api_request, ApiError};
+use crate::api::{ApiError, api_req};
 use crate::crypto::AuthToken;
 
 #[derive(Error, Debug)]
@@ -18,20 +17,32 @@ pub enum GradebookError {
     InvalidPointString,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GradebookReq {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    report_period: Option<i32>,
+    #[serde(rename = "concurrentSchOrgYearGU")]
+    concurrent_sch_org_year_gu: String,
+    #[serde(rename = "childIntID")]
+    child_int_id: i32,
+    langauge_code: String,
+}
+
 pub async fn get_grade_book(token: &mut AuthToken, rp: Option<i32>) -> Result<Response, ApiError> {
-    let data: GradebookData = api_request(
+    let result: OuterGb = api_req(
         "Gradebook",
-        json!({
-            "reportPeriod": rp.map(|x| x.to_string()).unwrap_or_default(),
-            "concurrentSchOrgYearGU": "",
-            "childIntID": 0,
-            "languageCode": "en",
-        }),
+        GradebookReq {
+            report_period: rp,
+            concurrent_sch_org_year_gu: String::default(),
+            child_int_id: 0,
+            langauge_code: "ENG".to_string(),
+        },
         token,
     )
     .await?;
 
-    Ok(data.traditional_gradebook.try_into()?)
+    Ok(result.inner.try_into()?)
 }
 
 // API structs
@@ -107,7 +118,7 @@ impl TryFrom<Gradebook> for Response {
                             name: c.title,
                             teacher: c.staff,
                             grade: 0.0,
-                            category: c.image_type.unwrap_or_default(),
+                            category: c.image_type,
                             letter_grade: "N/A".to_string(),
                             assignments: Vec::new(),
                             categories: HashMap::new(),
@@ -131,22 +142,24 @@ impl TryFrom<Gradebook> for Response {
 
                     let mut categories = HashMap::new();
 
-                    for agc in mark.grade_calculation_summary {
-                        if agc.assignment_grade_calc_type == "TOTAL" {
-                            continue;
-                        }
+                    if let Some(agcs) = mark.grade_calculation_summary {
+                        for agc in agcs {
+                            if agc.assignment_grade_calc_type == "TOTAL" {
+                                continue;
+                            }
 
-                        categories.insert(
-                            agc.assignment_grade_calc_type,
-                            Category {
-                                weight: agc.weight.trim_matches('%').parse::<f32>()? / 100.0,
-                                points_earned: agc.points.replace(",", "").parse()?,
-                                points_possible: agc
-                                    .points_possible
-                                    .replace(",", "")
-                                    .parse()?,
-                            },
-                        );
+                            categories.insert(
+                                agc.assignment_grade_calc_type,
+                                Category {
+                                    weight: agc.weight.trim_matches('%').parse::<f32>()? / 100.0,
+                                    points_earned: agc.points.replace(",", "").parse()?,
+                                    points_possible: agc
+                                        .points_possible
+                                        .replace(",", "")
+                                        .parse()?,
+                                },
+                            );
+                        }
                     }
 
                     let mut assignments = Vec::new();
@@ -200,7 +213,7 @@ impl TryFrom<Gradebook> for Response {
                         name: c.title,
                         teacher: c.staff,
                         grade,
-                        category: c.image_type.unwrap_or_default(),
+                        category: c.image_type,
                         letter_grade: lg,
                         assignments,
                         categories,
@@ -213,68 +226,148 @@ impl TryFrom<Gradebook> for Response {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GradebookData {
-    traditional_gradebook: Gradebook,
+#[derive(Serialize, Deserialize, Debug)]
+struct OuterGb {
+    #[serde(rename = "traditionalGradebook")]
+    inner: Gradebook,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+// XML structs
+#[derive(Serialize, Deserialize, Debug)]
 struct Gradebook {
+    #[serde(rename = "type")]
+    gradebook_type: String,
+    #[serde(rename = "errorMessage")]
+    error_message: String,
+    // #[serde(rename = "hideStandardGraphInd")]
+    // hide_standard_graph_ind: String,
+    // #[serde(rename = "hideMarksColumnElementary")]
+    // hide_marks_column_elementary: String,
+    // #[serde(rename = "hidePointsColumnElementary")]
+    // hide_points_column_elementary: String,
+    // #[serde(rename = "hidePercentSecondary")]
+    // hide_percent_secondary: String,
+    // #[serde(rename = "displayStandardsData")]
+    // display_standards_data: String,
+    // #[serde(rename = "gbStandardsTabDefault")]
+    // gbstandards_tab_default: String,
+    #[serde(rename = "reportingPeriods")]
     reporting_periods: Vec<ReportPeriod>,
+    #[serde(rename = "reportingPeriod")]
     reporting_period: ReportPeriod,
+    #[serde(rename = "courses")]
     courses: Vec<Course>,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize, Debug)]
 struct ReportPeriod {
+    #[serde(rename = "index")]
+    index: String,
+    #[serde(rename = "gradePeriod")]
     grade_period: String,
+    #[serde(rename = "startDate")]
     start_date: String,
+    #[serde(rename = "endDate")]
     end_date: String,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize, Debug)]
 struct Course {
+    #[serde(rename = "period")]
+    period: String,
+    #[serde(rename = "title")]
     title: String,
+    #[serde(rename = "courseName")]
+    name: String,
+    #[serde(rename = "room")]
+    room: String,
+    #[serde(rename = "staff")]
     staff: String,
-    image_type: Option<String>,
-    #[serde(default)]
+    #[serde(rename = "staffEMail")]
+    staff_email: String,
+    #[serde(rename = "staffGU")]
+    staff_gu: String,
+    #[serde(rename = "imageType")]
+    image_type: String,
+    #[serde(rename = "highlightPercentageCutOffForProgressBar")]
+    highlight_percentage_cut_off_for_progress_bar: i32,
+    #[serde(rename = "marks")]
     marks: Vec<Mark>,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize, Debug)]
 struct Mark {
+    #[serde(rename = "markName")]
+    mark_name: String,
+    #[serde(rename = "calculatedScoreString")]
     calculated_score_string: String,
+    #[serde(rename = "calculatedScoreRaw")]
     calculated_score_raw: String,
-    #[serde(default)]
-    grade_calculation_summary: Vec<AssignmentGradeCalc>,
+    #[serde(rename = "gradeCalculationSummary")]
+    grade_calculation_summary: Option<Vec<AssignmentGradeCalc>>,
+    #[serde(rename = "assignments")]
     #[serde(default)]
     assignments: Vec<Assignment_>,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize, Debug)]
 struct AssignmentGradeCalc {
     #[serde(rename = "type")]
     assignment_grade_calc_type: String,
+    #[serde(rename = "weight")]
     weight: String,
+    #[serde(rename = "points")]
     points: String,
+    #[serde(rename = "pointsPossible")]
     points_possible: String,
+    #[serde(rename = "weightedPct")]
+    weighted_pct: String,
+    #[serde(rename = "calculatedMark")]
+    calculated_mark: String,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize, Debug)]
 struct Assignment_ {
+    #[serde(rename = "gradebookID")]
+    gradebook_id: i64,
+    #[serde(rename = "measure")]
     measure: String,
     #[serde(rename = "type")]
     assignment_type: String,
+    #[serde(rename = "date")]
+    date: String,
+    #[serde(rename = "dueDate")]
+    due_date: String,
+    #[serde(rename = "displayScore")]
+    display_score: Option<String>,
+    #[serde(rename = "scoreCalValue")]
     score_cal_value: Option<String>,
+    #[serde(rename = "timeSincePost")]
+    time_since_post: String,
+    #[serde(rename = "totalSecondsSincePost")]
+    total_seconds_since_post: f64,
+    #[serde(rename = "scoreMaxValue")]
     score_max_value: Option<String>,
+    #[serde(rename = "scoreType")]
+    score_type: Option<String>,
+    #[serde(rename = "points")]
     points: String,
-    #[serde(default)]
+    #[serde(rename = "point")]
+    points_earned: Option<String>,
+    #[serde(rename = "pointPossible")]
+    points_possible: Option<String>,
+    #[serde(rename = "notes")]
     notes: String,
+    #[serde(rename = "teacherID")]
+    teacher_id: i64,
+    #[serde(rename = "studentID")]
+    student_id: i64,
+    #[serde(rename = "measureDescription")]
+    measure_description: String,
+    #[serde(rename = "hasDropBox")]
+    has_drop_box: bool,
+    #[serde(rename = "dropStartDate")]
+    drop_start_date: String,
+    #[serde(rename = "dropEndDate")]
+    drop_end_date: String,
 }

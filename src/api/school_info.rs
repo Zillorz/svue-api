@@ -1,14 +1,14 @@
 use crate::{
-    api::{api_request, ApiError},
+    api::{ApiError, DefaultReq, api_req},
     crypto::AuthToken,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 pub async fn school_info(token: &mut AuthToken) -> Result<SchoolInfo, ApiError> {
-    let data: SchoolInfoData =
-        api_request("GetSchoolInformationData", json!({"childIntID": 0}), token).await?;
-    Ok(data.student_school_info_listing.into())
+    let result: OuterSchoolInfo =
+        api_req("GetSchoolInformationData", DefaultReq::default(), token).await?;
+
+    Ok(result.inner.into())
 }
 
 #[derive(Serialize, Deserialize)]
@@ -37,11 +37,7 @@ impl From<StudentSchoolInfoListing> for SchoolInfo {
             zip_code: value.school_zip,
             phone_number: value.phone,
             website: value.url,
-            staff: value
-                .staff_lists
-                .into_iter()
-                .map(|x| x.into())
-                .collect(),
+            staff: value.staff_lists.into_iter().map(|x| x.into()).collect(),
         }
     }
 }
@@ -53,8 +49,8 @@ pub struct StaffInfo {
     email: String,
 }
 
-impl From<StaffList> for StaffInfo {
-    fn from(value: StaffList) -> Self {
+impl From<Staff> for StaffInfo {
+    fn from(value: Staff) -> Self {
         StaffInfo {
             name: value.name,
             job_title: value.title,
@@ -63,34 +59,57 @@ impl From<StaffList> for StaffInfo {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SchoolInfoData {
-    student_school_info_listing: StudentSchoolInfoListing,
+// Xml structs
+#[derive(Serialize, Deserialize)]
+pub struct OuterSchoolInfo {
+    #[serde(rename = "studentSchoolInfoListing")]
+    pub inner: StudentSchoolInfoListing,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize)]
 pub struct StudentSchoolInfoListing {
+    #[serde(rename = "school")]
     pub school: String,
+    #[serde(rename = "principal")]
     pub principal: String,
+    #[serde(rename = "schoolAddress")]
     pub school_address: String,
+    #[serde(rename = "schoolAddress2")]
+    pub school_address2: String,
+    #[serde(rename = "schoolCity")]
     pub school_city: String,
+    #[serde(rename = "schoolState")]
     pub school_state: String,
+    #[serde(rename = "schoolZip")]
     pub school_zip: String,
+    #[serde(rename = "phone")]
     pub phone: String,
+    #[serde(rename = "phone2")]
+    pub phone2: String,
     #[serde(rename = "URL")]
     pub url: String,
+    #[serde(rename = "principalEmail")]
     pub principal_email: String,
-    #[serde(default)]
-    pub staff_lists: Vec<StaffList>,
+    #[serde(rename = "principalGu")]
+    pub principal_gu: String,
+    #[serde(rename = "$text")]
+    pub text: Option<String>,
+    #[serde(rename = "staffLists")]
+    pub staff_lists: Vec<Staff>,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StaffList {
+#[derive(Serialize, Deserialize)]
+pub struct Staff {
+    #[serde(rename = "name")]
     pub name: String,
     #[serde(rename = "eMail")]
     pub email: String,
+    #[serde(rename = "title")]
     pub title: String,
+    #[serde(rename = "phone")]
+    pub phone: String,
+    #[serde(rename = "extn")]
+    pub extn: String,
+    #[serde(rename = "staffGU")]
+    pub staff_gu: String,
 }

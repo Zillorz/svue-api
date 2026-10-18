@@ -1,14 +1,12 @@
-use crate::api::{api_request, ApiError};
+use crate::api::{ApiError, DefaultReq, api_req};
 use crate::crypto::AuthToken;
 use crate::documents::base64;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 pub async fn both(token: &mut AuthToken) -> Result<(StudentInfo, Vec<u8>), ApiError> {
-    let data: StudentInfoData =
-        api_request("GetStudentInfoData", json!({"childIntID": 0}), token).await?;
+    let result: OuterStudent = api_req("GetStudentInfoData", DefaultReq::default(), token).await?;
 
-    let mut si = data.student_info_detail_xml;
+    let mut si: StudentInfo_ = result.inner;
     let photo = std::mem::take(&mut si.photo);
     Ok((si.into(), photo))
 }
@@ -34,7 +32,7 @@ pub struct StudentInfo {
     emergency_contacts: Vec<Contact>,
     physician: Doctor,
     dentist: Doctor,
-    school: String
+    school: String,
 }
 
 impl From<StudentInfo_> for StudentInfo {
@@ -55,7 +53,7 @@ impl From<StudentInfo_> for StudentInfo {
                 .collect(),
             physician: value.physician.into(),
             dentist: value.dentist.into(),
-            school: value.current_school
+            school: value.current_school,
         }
     }
 }
@@ -119,58 +117,125 @@ impl From<Dentist> for Doctor {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StudentInfoData {
+// Xml structs
+
+#[derive(Serialize, Deserialize)]
+pub struct OuterStudent {
     #[serde(rename = "studentInfoDetailXML")]
-    student_info_detail_xml: StudentInfo_,
+    inner: StudentInfo_,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize)]
 pub struct StudentInfo_ {
+    #[serde(rename = "type")]
+    pub student_info_type: String,
+    // #[serde(rename = "@ShowStudentBusAssignmentInfo")]
+    // pub show_student_bus_assignment_info: String,
+    // #[serde(rename = "@ShowPhysicianAndDentistInfo")]
+    // pub show_physician_and_dentist_info: String,
+    // #[serde(rename = "@ShowStudentInfo")]
+    // pub show_student_info: String,
+    // #[serde(rename = "@ShowFrontLineSpedURL")]
+    // pub show_front_line_sped_url: String,
+    // #[serde(rename = "@ShowFrontLine504URL")]
+    // pub show_front_line504_url: String,
+    // #[serde(rename = "@ShowFrontLineParentPortalURL")]
+    // pub show_front_line_parent_portal_url: String,
+    // #[serde(rename = "LockerInfoRecords")]
+    // pub locker_info_records: LockerInfoRecords,
+    #[serde(rename = "formattedName")]
     pub formatted_name: String,
     #[serde(rename = "permID")]
     pub perm_id: String,
+    #[serde(rename = "gender")]
     pub gender: String,
+    #[serde(rename = "grade")]
     pub grade: String,
+    #[serde(rename = "address")]
     pub address: String,
+    #[serde(rename = "lastNameGoesBy")]
+    pub last_name_goes_by: String,
+    #[serde(rename = "nickName")]
+    pub nick_name: String,
+    #[serde(rename = "birthDate")]
     pub birth_date: String,
     #[serde(rename = "eMail")]
     pub email: String,
+    #[serde(rename = "phone")]
     pub phone: String,
+    #[serde(rename = "homeLanguage")]
+    pub home_language: String,
+    #[serde(rename = "currentSchool")]
     pub current_school: String,
+    #[serde(rename = "track")]
+    pub track: String,
+    #[serde(rename = "homeRoomTch")]
+    pub home_room_tch: String,
+    #[serde(rename = "homeRoomTchEMail")]
+    pub home_room_tch_email: String,
+    #[serde(rename = "homeRoomTchStaffGU")]
+    pub home_room_tch_staff_gu: String,
+    #[serde(rename = "orgYearGU")]
+    pub org_year_gu: String,
+    #[serde(rename = "homeRoom")]
+    pub home_room: String,
+    #[serde(rename = "counselorName")]
+    pub counselor_name: String,
+    #[serde(rename = "counselorEmail")]
+    pub counselor_email: String,
+    #[serde(rename = "counselorStaffGU")]
+    pub counselor_staff_gu: String,
+    #[serde(rename = "photo")]
     #[serde(deserialize_with = "base64")]
     pub photo: Vec<u8>,
-    #[serde(default)]
+    #[serde(rename = "emergencyContacts")]
     pub emergency_contacts: Vec<EmergencyContact>,
+    #[serde(rename = "physician")]
     pub physician: Physician,
+    #[serde(rename = "dentist")]
     pub dentist: Dentist,
+    // #[serde(rename = "UserDefinedGroupBoxes")]
+    // pub user_defined_group_boxes: UserDefinedGroupBoxes,
+    // #[serde(rename = "StudentBusAssignments")]
+    // pub student_bus_assignments: StudentBusAssignments,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize)]
 pub struct EmergencyContact {
+    #[serde(rename = "name")]
     pub name: String,
+    #[serde(rename = "relationship")]
     pub relationship: String,
+    #[serde(rename = "homePhone")]
     pub home_phone: String,
+    #[serde(rename = "workPhone")]
     pub work_phone: String,
+    #[serde(rename = "otherPhone")]
     pub other_phone: String,
+    #[serde(rename = "mobilePhone")]
     pub mobile_phone: String,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize)]
 pub struct Physician {
+    #[serde(rename = "name")]
     pub name: String,
+    #[serde(rename = "hospital")]
     pub hospital: String,
+    #[serde(rename = "phone")]
     pub phone: String,
+    #[serde(rename = "extn")]
+    pub extn: String,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize)]
 pub struct Dentist {
+    #[serde(rename = "name")]
     pub name: String,
+    #[serde(rename = "office")]
     pub office: String,
+    #[serde(rename = "phone")]
     pub phone: String,
+    #[serde(rename = "extn")]
+    pub extn: String,
 }
