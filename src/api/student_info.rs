@@ -126,6 +126,7 @@ pub struct OuterStudent {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StudentInfo_ {
     #[serde(rename = "type")]
     pub student_info_type: String,
@@ -143,33 +144,21 @@ pub struct StudentInfo_ {
     // pub show_front_line_parent_portal_url: String,
     // #[serde(rename = "LockerInfoRecords")]
     // pub locker_info_records: LockerInfoRecords,
-    #[serde(rename = "formattedName")]
     pub formatted_name: String,
     #[serde(rename = "permID")]
     pub perm_id: String,
-    #[serde(rename = "gender")]
     pub gender: String,
-    #[serde(rename = "grade")]
     pub grade: String,
-    #[serde(rename = "address")]
     pub address: String,
-    #[serde(rename = "lastNameGoesBy")]
     pub last_name_goes_by: String,
-    #[serde(rename = "nickName")]
     pub nick_name: String,
-    #[serde(rename = "birthDate")]
     pub birth_date: String,
     #[serde(rename = "eMail")]
     pub email: String,
-    #[serde(rename = "phone")]
     pub phone: String,
-    #[serde(rename = "homeLanguage")]
     pub home_language: String,
-    #[serde(rename = "currentSchool")]
     pub current_school: String,
-    #[serde(rename = "track")]
     pub track: String,
-    #[serde(rename = "homeRoomTch")]
     pub home_room_tch: String,
     #[serde(rename = "homeRoomTchEMail")]
     pub home_room_tch_email: String,
@@ -177,22 +166,15 @@ pub struct StudentInfo_ {
     pub home_room_tch_staff_gu: String,
     #[serde(rename = "orgYearGU")]
     pub org_year_gu: String,
-    #[serde(rename = "homeRoom")]
     pub home_room: String,
-    #[serde(rename = "counselorName")]
     pub counselor_name: String,
-    #[serde(rename = "counselorEmail")]
     pub counselor_email: String,
     #[serde(rename = "counselorStaffGU")]
     pub counselor_staff_gu: String,
-    #[serde(rename = "photo")]
     #[serde(deserialize_with = "base64")]
     pub photo: Vec<u8>,
-    #[serde(rename = "emergencyContacts")]
     pub emergency_contacts: Vec<EmergencyContact>,
-    #[serde(rename = "physician")]
     pub physician: Physician,
-    #[serde(rename = "dentist")]
     pub dentist: Dentist,
     // #[serde(rename = "UserDefinedGroupBoxes")]
     // pub user_defined_group_boxes: UserDefinedGroupBoxes,
@@ -201,41 +183,30 @@ pub struct StudentInfo_ {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EmergencyContact {
-    #[serde(rename = "name")]
     pub name: String,
-    #[serde(rename = "relationship")]
     pub relationship: String,
-    #[serde(rename = "homePhone")]
     pub home_phone: String,
-    #[serde(rename = "workPhone")]
     pub work_phone: String,
-    #[serde(rename = "otherPhone")]
     pub other_phone: String,
-    #[serde(rename = "mobilePhone")]
     pub mobile_phone: String,
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Physician {
-    #[serde(rename = "name")]
     pub name: String,
-    #[serde(rename = "hospital")]
     pub hospital: String,
-    #[serde(rename = "phone")]
     pub phone: String,
-    #[serde(rename = "extn")]
     pub extn: String,
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Dentist {
-    #[serde(rename = "name")]
     pub name: String,
-    #[serde(rename = "office")]
     pub office: String,
-    #[serde(rename = "phone")]
     pub phone: String,
-    #[serde(rename = "extn")]
     pub extn: String,
 }

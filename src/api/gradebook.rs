@@ -234,6 +234,7 @@ struct OuterGb {
 
 // XML structs
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 struct Gradebook {
     #[serde(rename = "type")]
     gradebook_type: String,
@@ -251,123 +252,88 @@ struct Gradebook {
     // display_standards_data: String,
     // #[serde(rename = "gbStandardsTabDefault")]
     // gbstandards_tab_default: String,
-    #[serde(rename = "reportingPeriods")]
     reporting_periods: Vec<ReportPeriod>,
-    #[serde(rename = "reportingPeriod")]
     reporting_period: ReportPeriod,
-    #[serde(rename = "courses")]
     courses: Vec<Course>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 struct ReportPeriod {
-    #[serde(rename = "index")]
     index: String,
-    #[serde(rename = "gradePeriod")]
     grade_period: String,
-    #[serde(rename = "startDate")]
     start_date: String,
-    #[serde(rename = "endDate")]
     end_date: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 struct Course {
-    #[serde(rename = "period")]
     period: String,
-    #[serde(rename = "title")]
     title: String,
     #[serde(rename = "courseName")]
     name: String,
-    #[serde(rename = "room")]
     room: String,
-    #[serde(rename = "staff")]
     staff: String,
     #[serde(rename = "staffEMail")]
     staff_email: String,
     #[serde(rename = "staffGU")]
     staff_gu: String,
-    #[serde(rename = "imageType")]
     image_type: String,
-    #[serde(rename = "highlightPercentageCutOffForProgressBar")]
     highlight_percentage_cut_off_for_progress_bar: i32,
-    #[serde(rename = "marks")]
     marks: Vec<Mark>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 struct Mark {
-    #[serde(rename = "markName")]
     mark_name: String,
-    #[serde(rename = "calculatedScoreString")]
     calculated_score_string: String,
-    #[serde(rename = "calculatedScoreRaw")]
     calculated_score_raw: String,
-    #[serde(rename = "gradeCalculationSummary")]
     grade_calculation_summary: Option<Vec<AssignmentGradeCalc>>,
-    #[serde(rename = "assignments")]
     #[serde(default)]
     assignments: Vec<Assignment_>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 struct AssignmentGradeCalc {
     #[serde(rename = "type")]
     assignment_grade_calc_type: String,
-    #[serde(rename = "weight")]
     weight: String,
-    #[serde(rename = "points")]
     points: String,
-    #[serde(rename = "pointsPossible")]
     points_possible: String,
-    #[serde(rename = "weightedPct")]
     weighted_pct: String,
-    #[serde(rename = "calculatedMark")]
     calculated_mark: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 struct Assignment_ {
     #[serde(rename = "gradebookID")]
     gradebook_id: i64,
-    #[serde(rename = "measure")]
     measure: String,
     #[serde(rename = "type")]
     assignment_type: String,
-    #[serde(rename = "date")]
     date: String,
-    #[serde(rename = "dueDate")]
     due_date: String,
-    #[serde(rename = "displayScore")]
     display_score: Option<String>,
-    #[serde(rename = "scoreCalValue")]
     score_cal_value: Option<String>,
-    #[serde(rename = "timeSincePost")]
     time_since_post: String,
-    #[serde(rename = "totalSecondsSincePost")]
     total_seconds_since_post: f64,
-    #[serde(rename = "scoreMaxValue")]
     score_max_value: Option<String>,
-    #[serde(rename = "scoreType")]
     score_type: Option<String>,
-    #[serde(rename = "points")]
     points: String,
     #[serde(rename = "point")]
     points_earned: Option<String>,
-    #[serde(rename = "pointPossible")]
     points_possible: Option<String>,
-    #[serde(rename = "notes")]
     notes: String,
     #[serde(rename = "teacherID")]
     teacher_id: i64,
     #[serde(rename = "studentID")]
     student_id: i64,
-    #[serde(rename = "measureDescription")]
     measure_description: String,
-    #[serde(rename = "hasDropBox")]
     has_drop_box: bool,
-    #[serde(rename = "dropStartDate")]
     drop_start_date: String,
-    #[serde(rename = "dropEndDate")]
     drop_end_date: String,
 }

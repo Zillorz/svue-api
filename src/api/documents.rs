@@ -90,34 +90,28 @@ pub struct OuterDocs {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StudentDocuments {
-    #[serde(rename = "showDateColumn")]
     pub show_date_column: bool,
-    #[serde(rename = "showDocNameColumn")]
     pub show_doc_name_column: bool,
-    #[serde(rename = "showDocCatColumn")]
     pub show_doc_cat_column: bool,
     #[serde(rename = "studentGU")]
     pub student_gu: String,
     #[serde(rename = "studentSSY")]
     pub student_ssy: String,
-    #[serde(rename = "studentDocumentDatas")]
     pub student_document_datas: Vec<StudentDocumentData>,
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StudentDocumentData {
     #[serde(rename = "documentGU")]
     pub document_gu: String,
-    #[serde(rename = "documentFileName")]
     pub document_file_name: String,
-    #[serde(rename = "documentDate")]
     pub document_date: String,
-    #[serde(rename = "documentType")]
     pub document_type: String,
     #[serde(rename = "studentGU")]
     pub student_gu: String,
-    #[serde(rename = "documentComment")]
     pub document_comment: String,
 }
 
@@ -134,20 +128,16 @@ pub struct StudentAttachedDocumentData {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentData_ {
     #[serde(rename = "documentGU")]
     pub document_gu: String,
     #[serde(rename = "studentGU")]
     pub student_gu: String,
-    #[serde(rename = "docDate")]
     pub doc_date: String,
-    #[serde(rename = "fileName")]
     pub file_name: String,
-    #[serde(rename = "category")]
     pub category: String,
-    #[serde(rename = "notes")]
     pub notes: String,
-    #[serde(rename = "docType")]
     pub doc_type: String,
     #[serde(rename = "base64Code")]
     #[serde(deserialize_with = "base64")]

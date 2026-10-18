@@ -67,48 +67,32 @@ pub struct OuterSchoolInfo {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StudentSchoolInfoListing {
-    #[serde(rename = "school")]
     pub school: String,
-    #[serde(rename = "principal")]
     pub principal: String,
-    #[serde(rename = "schoolAddress")]
     pub school_address: String,
-    #[serde(rename = "schoolAddress2")]
     pub school_address2: String,
-    #[serde(rename = "schoolCity")]
     pub school_city: String,
-    #[serde(rename = "schoolState")]
     pub school_state: String,
-    #[serde(rename = "schoolZip")]
     pub school_zip: String,
-    #[serde(rename = "phone")]
     pub phone: String,
-    #[serde(rename = "phone2")]
     pub phone2: String,
     #[serde(rename = "URL")]
     pub url: String,
-    #[serde(rename = "principalEmail")]
     pub principal_email: String,
-    #[serde(rename = "principalGu")]
     pub principal_gu: String,
-    #[serde(rename = "$text")]
-    pub text: Option<String>,
-    #[serde(rename = "staffLists")]
     pub staff_lists: Vec<Staff>,
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Staff {
-    #[serde(rename = "name")]
     pub name: String,
     #[serde(rename = "eMail")]
     pub email: String,
-    #[serde(rename = "title")]
     pub title: String,
-    #[serde(rename = "phone")]
     pub phone: String,
-    #[serde(rename = "extn")]
     pub extn: String,
     #[serde(rename = "staffGU")]
     pub staff_gu: String,
