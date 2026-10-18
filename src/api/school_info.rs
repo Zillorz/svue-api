@@ -1,18 +1,14 @@
 use crate::{
-    api::{api_request, ApiError, ProcessWebServiceRequest},
+    api::{ApiError, DefaultReq, api_req},
     crypto::AuthToken,
 };
 use serde::{Deserialize, Serialize};
 
 pub async fn school_info(token: &mut AuthToken) -> Result<SchoolInfo, ApiError> {
-    let result = api_request(
-        ProcessWebServiceRequest::ck_default("StudentSchoolInfo".to_string(), String::new(), token),
-        token,
-    )
-    .await?;
+    let result: OuterSchoolInfo =
+        api_req("GetSchoolInformationData", DefaultReq::default(), token).await?;
 
-    let si: StudentSchoolInfoListing = quick_xml::de::from_str(result.as_str())?;
-    Ok(si.into())
+    Ok(result.inner.into())
 }
 
 #[derive(Serialize, Deserialize)]
@@ -41,12 +37,7 @@ impl From<StudentSchoolInfoListing> for SchoolInfo {
             zip_code: value.school_zip,
             phone_number: value.phone,
             website: value.url,
-            staff: value
-                .staff_lists
-                .staff_list
-                .into_iter()
-                .map(|x| x.into())
-                .collect(),
+            staff: value.staff_lists.into_iter().map(|x| x.into()).collect(),
         }
     }
 }
@@ -58,8 +49,8 @@ pub struct StaffInfo {
     email: String,
 }
 
-impl From<StaffList> for StaffInfo {
-    fn from(value: StaffList) -> Self {
+impl From<Staff> for StaffInfo {
+    fn from(value: Staff) -> Self {
         StaffInfo {
             name: value.name,
             job_title: value.title,
@@ -69,64 +60,56 @@ impl From<StaffList> for StaffInfo {
 }
 
 // Xml structs
+#[derive(Serialize, Deserialize)]
+pub struct OuterSchoolInfo {
+    #[serde(rename = "studentSchoolInfoListing")]
+    pub inner: StudentSchoolInfoListing,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct StudentSchoolInfoListing {
-    #[serde(rename = "@xmlns:xsd")]
-    pub xmlns_xsd: String,
-    #[serde(rename = "@xmlns:xsi")]
-    pub xmlns_xsi: String,
-    #[serde(rename = "@School")]
+    #[serde(rename = "school")]
     pub school: String,
-    #[serde(rename = "@Principal")]
+    #[serde(rename = "principal")]
     pub principal: String,
-    #[serde(rename = "@SchoolAddress")]
+    #[serde(rename = "schoolAddress")]
     pub school_address: String,
-    #[serde(rename = "@SchoolAddress2")]
+    #[serde(rename = "schoolAddress2")]
     pub school_address2: String,
-    #[serde(rename = "@SchoolCity")]
+    #[serde(rename = "schoolCity")]
     pub school_city: String,
-    #[serde(rename = "@SchoolState")]
+    #[serde(rename = "schoolState")]
     pub school_state: String,
-    #[serde(rename = "@SchoolZip")]
+    #[serde(rename = "schoolZip")]
     pub school_zip: String,
-    #[serde(rename = "@Phone")]
+    #[serde(rename = "phone")]
     pub phone: String,
-    #[serde(rename = "@Phone2")]
+    #[serde(rename = "phone2")]
     pub phone2: String,
-    #[serde(rename = "@URL")]
+    #[serde(rename = "URL")]
     pub url: String,
-    #[serde(rename = "@PrincipalEmail")]
+    #[serde(rename = "principalEmail")]
     pub principal_email: String,
-    #[serde(rename = "@PrincipalGu")]
+    #[serde(rename = "principalGu")]
     pub principal_gu: String,
     #[serde(rename = "$text")]
     pub text: Option<String>,
-    #[serde(rename = "StaffLists")]
-    pub staff_lists: StaffLists,
+    #[serde(rename = "staffLists")]
+    pub staff_lists: Vec<Staff>,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct StaffLists {
-    #[serde(rename = "$text")]
-    pub text: Option<String>,
-    #[serde(rename = "StaffList")]
-    pub staff_list: Vec<StaffList>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct StaffList {
-    #[serde(rename = "@Name")]
+pub struct Staff {
+    #[serde(rename = "name")]
     pub name: String,
-    #[serde(rename = "@EMail")]
+    #[serde(rename = "eMail")]
     pub email: String,
-    #[serde(rename = "@Title")]
+    #[serde(rename = "title")]
     pub title: String,
-    #[serde(rename = "@Phone")]
+    #[serde(rename = "phone")]
     pub phone: String,
-    #[serde(rename = "@Extn")]
+    #[serde(rename = "extn")]
     pub extn: String,
-    #[serde(rename = "@StaffGU")]
+    #[serde(rename = "staffGU")]
     pub staff_gu: String,
 }
-

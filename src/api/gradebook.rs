@@ -4,7 +4,7 @@ use std::num::ParseFloatError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::api::{api_request, ApiError, ProcessWebServiceRequest};
+use crate::api::{ApiError, api_req};
 use crate::crypto::AuthToken;
 
 #[derive(Error, Debug)]
@@ -17,19 +17,32 @@ pub enum GradebookError {
     InvalidPointString,
 }
 
-pub async fn get_grade_book(token: &mut AuthToken, rp: Option<i32>) -> Result<Response, ApiError> {
-    let params = rp
-        .map(|x| format!("<ReportPeriod>{x}</ReportPeriod>"))
-        .unwrap_or_default();
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GradebookReq {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    report_period: Option<i32>,
+    #[serde(rename = "concurrentSchOrgYearGU")]
+    concurrent_sch_org_year_gu: String,
+    #[serde(rename = "childIntID")]
+    child_int_id: i32,
+    langauge_code: String,
+}
 
-    let result = api_request(
-        ProcessWebServiceRequest::ck_default("Gradebook".to_string(), params, token),
+pub async fn get_grade_book(token: &mut AuthToken, rp: Option<i32>) -> Result<Response, ApiError> {
+    let result: OuterGb = api_req(
+        "Gradebook",
+        GradebookReq {
+            report_period: rp,
+            concurrent_sch_org_year_gu: String::default(),
+            child_int_id: 0,
+            langauge_code: "ENG".to_string(),
+        },
         token,
     )
     .await?;
 
-    let gb: Gradebook = quick_xml::de::from_str(result.as_str())?;
-    Ok(gb.try_into()?)
+    Ok(result.inner.try_into()?)
 }
 
 // API structs
@@ -81,7 +94,6 @@ impl TryFrom<Gradebook> for Response {
     fn try_from(value: Gradebook) -> Result<Self, Self::Error> {
         let reporting_periods: Vec<ReportingPeriod> = value
             .reporting_periods
-            .report_period
             .into_iter()
             .map(|p| ReportingPeriod {
                 name: p.grade_period,
@@ -98,11 +110,10 @@ impl TryFrom<Gradebook> for Response {
         Ok(Response {
             classes: value
                 .courses
-                .course
                 .into_iter()
                 .map(|c| {
                     // necessary for some odd classes ig?
-                    let Some(mark) = c.marks.mark else {
+                    let Some(mark) = c.marks.into_iter().next() else {
                         return Ok::<_, GradebookError>(Class {
                             name: c.title,
                             teacher: c.staff,
@@ -131,7 +142,7 @@ impl TryFrom<Gradebook> for Response {
 
                     let mut categories = HashMap::new();
 
-                    if let Some(agcs) = mark.grade_calculation_summary.assignment_grade_calc {
+                    if let Some(agcs) = mark.grade_calculation_summary {
                         for agc in agcs {
                             if agc.assignment_grade_calc_type == "TOTAL" {
                                 continue;
@@ -152,7 +163,7 @@ impl TryFrom<Gradebook> for Response {
                     }
 
                     let mut assignments = Vec::new();
-                    for assign in mark.assignments.assignment {
+                    for assign in mark.assignments {
                         let points_earned = assign
                             .score_cal_value
                             .and_then(|x| x.replace(",", "").parse().ok())
@@ -215,205 +226,148 @@ impl TryFrom<Gradebook> for Response {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct OuterGb {
+    #[serde(rename = "traditionalGradebook")]
+    inner: Gradebook,
+}
+
 // XML structs
 #[derive(Serialize, Deserialize, Debug)]
 struct Gradebook {
-    #[serde(rename = "@xmlns:xsd")]
-    xmlns_xsd: String,
-    #[serde(rename = "@xmlns:xsi")]
-    xmlns_xsi: String,
-    #[serde(rename = "@Type")]
+    #[serde(rename = "type")]
     gradebook_type: String,
-    #[serde(rename = "@ErrorMessage")]
+    #[serde(rename = "errorMessage")]
     error_message: String,
-    #[serde(rename = "@HideStandardGraphInd")]
-    hide_standard_graph_ind: String,
-    #[serde(rename = "@HideMarksColumnElementary")]
-    hide_marks_column_elementary: String,
-    #[serde(rename = "@HidePointsColumnElementary")]
-    hide_points_column_elementary: String,
-    #[serde(rename = "@HidePercentSecondary")]
-    hide_percent_secondary: String,
-    #[serde(rename = "@DisplayStandardsData")]
-    display_standards_data: String,
-    #[serde(rename = "@GBStandardsTabDefault")]
-    gbstandards_tab_default: String,
-    #[serde(rename = "ReportingPeriods")]
-    reporting_periods: ReportingPeriods,
-    #[serde(rename = "ReportingPeriod")]
-    reporting_period: ReportingPeriod_,
-    #[serde(rename = "Courses")]
-    courses: Courses,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct ReportingPeriods {
-    #[serde(rename = "ReportPeriod")]
-    report_period: Vec<ReportPeriod>,
+    // #[serde(rename = "hideStandardGraphInd")]
+    // hide_standard_graph_ind: String,
+    // #[serde(rename = "hideMarksColumnElementary")]
+    // hide_marks_column_elementary: String,
+    // #[serde(rename = "hidePointsColumnElementary")]
+    // hide_points_column_elementary: String,
+    // #[serde(rename = "hidePercentSecondary")]
+    // hide_percent_secondary: String,
+    // #[serde(rename = "displayStandardsData")]
+    // display_standards_data: String,
+    // #[serde(rename = "gbStandardsTabDefault")]
+    // gbstandards_tab_default: String,
+    #[serde(rename = "reportingPeriods")]
+    reporting_periods: Vec<ReportPeriod>,
+    #[serde(rename = "reportingPeriod")]
+    reporting_period: ReportPeriod,
+    #[serde(rename = "courses")]
+    courses: Vec<Course>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ReportPeriod {
-    #[serde(rename = "@Index")]
+    #[serde(rename = "index")]
     index: String,
-    #[serde(rename = "@GradePeriod")]
+    #[serde(rename = "gradePeriod")]
     grade_period: String,
-    #[serde(rename = "@StartDate")]
+    #[serde(rename = "startDate")]
     start_date: String,
-    #[serde(rename = "@EndDate")]
+    #[serde(rename = "endDate")]
     end_date: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct ReportingPeriod_ {
-    #[serde(rename = "@GradePeriod")]
-    grade_period: String,
-    #[serde(rename = "@StartDate")]
-    start_date: String,
-    #[serde(rename = "@EndDate")]
-    end_date: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Courses {
-    #[serde(rename = "Course")]
-    course: Vec<Course>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Course {
-    #[serde(rename = "@UsesRichContent")]
-    uses_rich_content: String,
-    #[serde(rename = "@Period")]
+    #[serde(rename = "period")]
     period: String,
-    #[serde(rename = "@Title")]
+    #[serde(rename = "title")]
     title: String,
-    #[serde(rename = "@CourseName")]
+    #[serde(rename = "courseName")]
     name: String,
-    #[serde(rename = "@Room")]
+    #[serde(rename = "room")]
     room: String,
-    #[serde(rename = "@Staff")]
+    #[serde(rename = "staff")]
     staff: String,
-    #[serde(rename = "@StaffEMail")]
+    #[serde(rename = "staffEMail")]
     staff_email: String,
-    #[serde(rename = "@StaffGU")]
+    #[serde(rename = "staffGU")]
     staff_gu: String,
-    #[serde(rename = "@ImageType")]
+    #[serde(rename = "imageType")]
     image_type: String,
-    #[serde(rename = "@HighlightPercentageCutOffForProgressBar")]
-    highlight_percentage_cut_off_for_progress_bar: String,
-    #[serde(rename = "Marks")]
-    marks: Marks,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Marks {
-    #[serde(rename = "Mark")]
-    mark: Option<Mark>,
+    #[serde(rename = "highlightPercentageCutOffForProgressBar")]
+    highlight_percentage_cut_off_for_progress_bar: i32,
+    #[serde(rename = "marks")]
+    marks: Vec<Mark>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Mark {
-    #[serde(rename = "@MarkName")]
+    #[serde(rename = "markName")]
     mark_name: String,
-    #[serde(rename = "@CalculatedScoreString")]
+    #[serde(rename = "calculatedScoreString")]
     calculated_score_string: String,
-    #[serde(rename = "@CalculatedScoreRaw")]
+    #[serde(rename = "calculatedScoreRaw")]
     calculated_score_raw: String,
-    #[serde(rename = "StandardViews")]
-    standard_views: StandardViews,
-    #[serde(rename = "GradeCalculationSummary")]
-    grade_calculation_summary: GradeCalculationSummary,
-    #[serde(rename = "Assignments")]
-    assignments: Assignments,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct StandardViews {}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct GradeCalculationSummary {
-    #[serde(rename = "AssignmentGradeCalc")]
-    assignment_grade_calc: Option<Vec<AssignmentGradeCalc>>,
+    #[serde(rename = "gradeCalculationSummary")]
+    grade_calculation_summary: Option<Vec<AssignmentGradeCalc>>,
+    #[serde(rename = "assignments")]
+    #[serde(default)]
+    assignments: Vec<Assignment_>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct AssignmentGradeCalc {
-    #[serde(rename = "@Type")]
+    #[serde(rename = "type")]
     assignment_grade_calc_type: String,
-    #[serde(rename = "@Weight")]
+    #[serde(rename = "weight")]
     weight: String,
-    #[serde(rename = "@Points")]
+    #[serde(rename = "points")]
     points: String,
-    #[serde(rename = "@PointsPossible")]
+    #[serde(rename = "pointsPossible")]
     points_possible: String,
-    #[serde(rename = "@WeightedPct")]
+    #[serde(rename = "weightedPct")]
     weighted_pct: String,
-    #[serde(rename = "@CalculatedMark")]
+    #[serde(rename = "calculatedMark")]
     calculated_mark: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct Assignments {
-    #[serde(rename = "Assignment")]
-    #[serde(default)]
-    assignment: Vec<Assignment_>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 struct Assignment_ {
-    #[serde(rename = "@GradebookID")]
-    gradebook_id: String,
-    #[serde(rename = "@Measure")]
+    #[serde(rename = "gradebookID")]
+    gradebook_id: i64,
+    #[serde(rename = "measure")]
     measure: String,
-    #[serde(rename = "@Type")]
+    #[serde(rename = "type")]
     assignment_type: String,
-    #[serde(rename = "@Date")]
+    #[serde(rename = "date")]
     date: String,
-    #[serde(rename = "@DueDate")]
+    #[serde(rename = "dueDate")]
     due_date: String,
-    #[serde(rename = "@DisplayScore")]
+    #[serde(rename = "displayScore")]
     display_score: Option<String>,
-    #[serde(rename = "@ScoreCalValue")]
+    #[serde(rename = "scoreCalValue")]
     score_cal_value: Option<String>,
-    #[serde(rename = "@TimeSincePost")]
+    #[serde(rename = "timeSincePost")]
     time_since_post: String,
-    #[serde(rename = "@TotalSecondsSincePost")]
-    total_seconds_since_post: String,
-    #[serde(rename = "@ScoreMaxValue")]
+    #[serde(rename = "totalSecondsSincePost")]
+    total_seconds_since_post: f64,
+    #[serde(rename = "scoreMaxValue")]
     score_max_value: Option<String>,
-    #[serde(rename = "@ScoreType")]
+    #[serde(rename = "scoreType")]
     score_type: Option<String>,
-    #[serde(rename = "@Points")]
+    #[serde(rename = "points")]
     points: String,
-    #[serde(rename = "@Point")]
+    #[serde(rename = "point")]
     points_earned: Option<String>,
-    #[serde(rename = "@PointPossible")]
+    #[serde(rename = "pointPossible")]
     points_possible: Option<String>,
-    #[serde(rename = "@Notes")]
+    #[serde(rename = "notes")]
     notes: String,
-    #[serde(rename = "@TeacherID")]
-    teacher_id: String,
-    #[serde(rename = "@StudentID")]
-    student_id: String,
-    #[serde(rename = "@MeasureDescription")]
+    #[serde(rename = "teacherID")]
+    teacher_id: i64,
+    #[serde(rename = "studentID")]
+    student_id: i64,
+    #[serde(rename = "measureDescription")]
     measure_description: String,
-    #[serde(rename = "@HasDropBox")]
-    has_drop_box: String,
-    #[serde(rename = "@DropStartDate")]
+    #[serde(rename = "hasDropBox")]
+    has_drop_box: bool,
+    #[serde(rename = "dropStartDate")]
     drop_start_date: String,
-    #[serde(rename = "@DropEndDate")]
+    #[serde(rename = "dropEndDate")]
     drop_end_date: String,
-    #[serde(rename = "$text")]
-    text: Option<String>,
-    #[serde(rename = "Resources")]
-    resources: Resources,
-    #[serde(rename = "Standards")]
-    standards: Standards,
 }
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Resources {}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Standards {}

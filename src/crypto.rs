@@ -3,15 +3,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use aes_gcm_siv::{
-    aead::{Aead, OsRng},
-    AeadCore, Aes128GcmSiv, KeyInit, Nonce,
-};
+use aes_gcm_siv::{Aes128GcmSiv, KeyInit, Nonce, aead::Aead};
 use axum::extract::FromRequestParts;
 use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
-use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
+use crypto_common::Generate;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -38,12 +36,12 @@ pub enum CipherError {
 }
 
 pub fn create_token(cipher_text: String) -> Result<Vec<u8>, CryptoError> {
-    let key = BASE64_STANDARD.decode(
-        std::env::var("ENKEY").map_err(|_| CryptoError::Nokey)?
-    ).map_err(|_| CryptoError::Nokey)?;
+    let key = BASE64_STANDARD
+        .decode(std::env::var("ENKEY").map_err(|_| CryptoError::Nokey)?)
+        .map_err(|_| CryptoError::Nokey)?;
 
     let cipher = Aes128GcmSiv::new_from_slice(&key)?;
-    let nonce = Aes128GcmSiv::generate_nonce(&mut OsRng);
+    let nonce = Nonce::generate();
 
     let encrypted = cipher.encrypt(&nonce, cipher_text.as_bytes())?;
 
@@ -54,17 +52,16 @@ pub fn create_token(cipher_text: String) -> Result<Vec<u8>, CryptoError> {
 }
 
 pub fn try_decrypt_token(encrypted: &[u8]) -> Result<String, CryptoError> {
-    let key = BASE64_STANDARD.decode(
-        std::env::var("ENKEY").map_err(|_| CryptoError::Nokey)?
-    ).map_err(|_| CryptoError::Nokey)?;
+    let key = BASE64_STANDARD
+        .decode(std::env::var("ENKEY").map_err(|_| CryptoError::Nokey)?)
+        .map_err(|_| CryptoError::Nokey)?;
 
-    if encrypted.len() <= 12 {
+    let Ok(nonce) = Nonce::try_from(&encrypted[..12]) else {
         return Err(CipherError::Length.into());
-    }
+    };
 
-    let nonce = Nonce::from_slice(&encrypted[..12]);
     let cipher = Aes128GcmSiv::new_from_slice(&key)?;
-    let cookie = cipher.decrypt(nonce, &encrypted[12..])?;
+    let cookie = cipher.decrypt(&nonce, &encrypted[12..])?;
 
     Ok(String::from_utf8(cookie).map_err(CipherError::Decoding)?)
 }
@@ -73,20 +70,22 @@ pub fn try_decrypt_token(encrypted: &[u8]) -> Result<String, CryptoError> {
 pub struct AuthToken {
     pub username: String,
     pub password: String,
+
+    pub access_token: Option<String>,
     pub cookie: Option<String>,
 
     // if at this point, kill
     #[serde(with = "string")]
     pub expiry: u128,
 
-    pub district_url: String
+    pub district_url: String,
 }
 
 mod string {
     use std::fmt::Display;
     use std::str::FromStr;
 
-    use serde::{de, Deserialize, Deserializer, Serializer};
+    use serde::{Deserialize, Deserializer, Serializer, de};
 
     pub fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -159,10 +158,13 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthToken {
                 Ok(AuthToken {
                     username: username.to_string(),
                     password: password.to_string(),
+
+                    access_token: None,
                     cookie: None,
+
                     expiry: get_timestamp() + 1000 * 60 * 60 * 24,
                     // in the future, use this to support other districts
-                    district_url: "md-mcps-psv.edupoint.com".to_string()
+                    district_url: "md-mcps-psv.edupoint.com".to_string(),
                 })
             }
             _ => Err(ApiError::InvalidCredentials),
@@ -170,9 +172,7 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthToken {
     }
 }
 
-fn check_validity(
-    token: AuthToken,
-) -> Result<AuthToken, ApiError> {
+fn check_validity(token: AuthToken) -> Result<AuthToken, ApiError> {
     if get_timestamp() > token.expiry {
         Err(ApiError::ExpiredKey)?
     }
